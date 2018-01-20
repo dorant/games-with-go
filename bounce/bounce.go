@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/veandco/go-sdl2/sdl"
 )
@@ -34,9 +35,10 @@ func (ball ball) draw(pixels []byte) {
 	}
 }
 
-func (ball *ball) update() {
-	ball.x += ball.xv * 0.005
-	ball.y += ball.yv * 0.005
+// update handles any change of the a ball
+func (ball *ball) update(elapsedTime float32) {
+	ball.x += ball.xv * elapsedTime
+	ball.y += ball.yv * elapsedTime
 
 	// Collision detection: Bounce
 	if ball.y-ball.radius < 0 || ball.y+ball.radius > float32(winHeight) {
@@ -64,6 +66,7 @@ func (ball *ball) update() {
 
 }
 
+// setPixel set the color for a pixel
 func setPixel(x, y int, c color, pixels []byte) {
 	index := (y*winWidth + x) * 4
 	if index < len(pixels)-4 && index >= 0 {
@@ -73,6 +76,7 @@ func setPixel(x, y int, c color, pixels []byte) {
 	}
 }
 
+// clear cleans the pixelbuffer
 func clear(pixels []byte) {
 	for i := range pixels {
 		pixels[i] = 0
@@ -113,10 +117,14 @@ func main() {
 
 	pixels := make([]byte, winWidth*winHeight*4)
 
-	ball := ball{pos: pos{300, 300}, radius: 20, xv: 400, yv: 400, color: color{255, 255, 255}}
+	ball := ball{pos: pos{300, 300}, radius: 30, xv: 300, yv: 300, color: color{255, 255, 255}}
 
 	// Gameloop
+	var frameStart time.Time
+	var elapsedTime float32
 	for {
+		frameStart = time.Now()
+
 		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
 			switch event.(type) {
 			case *sdl.QuitEvent:
@@ -125,7 +133,7 @@ func main() {
 		}
 
 		// Handle movements
-		ball.update()
+		ball.update(elapsedTime)
 
 		// Draw
 		clear(pixels)
@@ -135,6 +143,11 @@ func main() {
 		renderer.Copy(texture, nil, nil)
 		renderer.Present()
 
-		sdl.Delay(16)
+		// Make sure its about 200fps
+		elapsedTime = float32(time.Since(frameStart).Seconds())
+		if elapsedTime < .005 {
+			sdl.Delay(5 - uint32(elapsedTime/1000.0))
+			elapsedTime = float32(time.Since(frameStart).Seconds())
+		}
 	}
 }
