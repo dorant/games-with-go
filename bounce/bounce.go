@@ -117,7 +117,7 @@ func main() {
 
 	pixels := make([]byte, winWidth*winHeight*4)
 
-	ball := ball{pos: pos{300, 300}, radius: 30, xv: 300, yv: 300, color: color{255, 255, 255}}
+	ball := ball{pos: pos{300, 300}, radius: 30, xv: 300, yv: 300, color: color{255, 255, 0}}
 
 	// Gameloop
 	var frameStart time.Time
