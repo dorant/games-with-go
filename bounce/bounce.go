@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dorant/games-with-go/noise"
 	"github.com/veandco/go-sdl2/sdl"
 )
 
@@ -83,6 +84,47 @@ func clear(pixels []byte) {
 	}
 }
 
+func lerp(b1 byte, b2 byte, pct float32) byte {
+	return byte(float32(b1) + pct*(float32(b2)-float32(b1)))
+}
+
+func colorLerp(c1, c2 color, pct float32) color {
+	return color{lerp(c1.r, c2.r, pct), lerp(c1.g, c2.g, pct), lerp(c1.b, c2.b, pct)}
+}
+
+func clamp(min, max, v int) int {
+	if v < min {
+		v = min
+	} else if v > max {
+		v = max
+	}
+	return v
+}
+
+func getGradient(c1, c2 color) []color {
+	result := make([]color, 256)
+	for i := range result {
+		pct := float32(i) / float32(255)
+		result[i] = colorLerp(c1, c2, pct)
+	}
+	return result
+}
+
+func rescaleAndDraw(noise []float32, min, max float32, gradient []color, w, h int) []byte {
+	result := make([]byte, w*h*4)
+	scale := 255.0 / (max - min)
+	offset := min * scale
+	for i := range noise {
+		noise[i] = noise[i]*scale - offset
+		c := gradient[clamp(0, 255, int(noise[i]))]
+		p := i * 4
+		result[p] = c.r
+		result[p+1] = c.g
+		result[p+2] = c.b
+	}
+	return result
+}
+
 func main() {
 
 	err := sdl.Init(sdl.INIT_EVERYTHING)
@@ -119,6 +161,11 @@ func main() {
 
 	ball := ball{pos: pos{300, 300}, radius: 30, xv: 300, yv: 300, color: color{255, 255, 0}}
 
+	// Create background
+	noise, min, max := noise.MakeNoise(noise.TURBULENCE, .02, 0.5, 2, 3, winWidth, winHeight)
+	gradient := getGradient(color{255, 0, 50}, color{255, 240, 0})
+	noisePixels := rescaleAndDraw(noise, min, max, gradient, winWidth, winHeight)
+
 	// Gameloop
 	var frameStart time.Time
 	var elapsedTime float32
@@ -136,7 +183,10 @@ func main() {
 		ball.update(elapsedTime)
 
 		// Draw
-		clear(pixels)
+		// clear(pixels)
+		for i := range noisePixels {
+			pixels[i] = noisePixels[i]
+		}
 		ball.draw(pixels)
 
 		texture.Update(nil, pixels, winWidth*4)
