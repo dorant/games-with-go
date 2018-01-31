@@ -2,73 +2,142 @@ package main
 
 import (
 	"fmt"
+	"image/png"
+	"math/rand"
+	"os"
+	"sort"
 	"time"
 
 	"github.com/dorant/games-with-go/noise"
+	"github.com/dorant/games-with-go/vec3"
 	"github.com/veandco/go-sdl2/sdl"
 )
 
-const winWidth, winHeight int = 600, 350
+const winWidth, winHeight, winDepth int = 800, 600, 600
 
-type pos struct {
-	x, y float32
-}
-
-type color struct {
+type rgba struct {
 	r, g, b byte
 }
 
-type ball struct {
-	pos
-	radius float32
-	xv     float32
-	yv     float32
-	color  color
+type sprite struct {
+	tex  *sdl.Texture
+	pos  vec3.Vector3
+	dir  vec3.Vector3
+	w, h int
 }
 
-func (ball ball) draw(pixels []byte) {
-	for y := -ball.radius; y < ball.radius; y++ {
-		for x := -ball.radius; x < ball.radius; x++ {
-			if x*x+y*y < ball.radius*ball.radius {
-				setPixel(int(ball.x+x), int(ball.y+y), ball.color, pixels)
+// update handles any change of the a sprite
+func (sprite *sprite) update(elapsedTime float32) {
+	p := vec3.Add(sprite.pos, vec3.Mult(sprite.dir, elapsedTime))
+
+	if p.X < 0 || p.X > float32(winWidth) {
+		sprite.dir.X = -sprite.dir.X
+	}
+
+	if p.Y < 0 || p.Y > float32(winHeight) {
+		sprite.dir.Y = -sprite.dir.Y
+	}
+
+	if p.Z < 0 || p.Z > float32(winDepth) {
+		sprite.dir.Z = -sprite.dir.Z
+	}
+
+	sprite.pos = vec3.Add(sprite.pos, vec3.Mult(sprite.dir, elapsedTime))
+}
+
+func (sprite *sprite) draw(renderer *sdl.Renderer) {
+	scale := (sprite.pos.Z/float32(winDepth) + 1) / 3
+	newW := int32(float32(sprite.w) * scale)
+	newH := int32(float32(sprite.h) * scale)
+	x := int32(sprite.pos.X - float32(newW)/2)
+	y := int32(sprite.pos.Y - float32(newH)/2)
+	rect := &sdl.Rect{X: x, Y: y, W: newW, H: newH}
+	renderer.Copy(sprite.tex, nil, rect)
+}
+
+type spriteArray []*sprite
+
+func (sprites spriteArray) Len() int {
+	return len(sprites)
+}
+
+func (sprites spriteArray) Swap(i, j int) {
+	sprites[i], sprites[j] = sprites[j], sprites[i]
+}
+
+func (sprites spriteArray) Less(i, j int) bool {
+	diff := sprites[i].pos.Z - sprites[j].pos.Z
+	return diff < -1
+}
+
+func pixelsToTexture(renderer *sdl.Renderer, pixels []byte, w, h int) *sdl.Texture {
+	tex, err := renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888, sdl.TEXTUREACCESS_STREAMING, int32(w), int32(h))
+	if err != nil {
+		panic(err)
+	}
+	tex.Update(nil, pixels, w*4)
+	return tex
+}
+
+func loadSprites(renderer *sdl.Renderer, numSprites int) []*sprite {
+
+	files := []string{"owl2.png"}
+	spriteTextures := make([]*sdl.Texture, len(files))
+
+	for i, file := range files {
+		infile, err := os.Open(file)
+		if err != nil {
+			panic(err)
+		}
+		defer infile.Close()
+
+		img, err := png.Decode(infile)
+		if err != nil {
+			panic(err)
+		}
+
+		w := img.Bounds().Max.X
+		h := img.Bounds().Max.Y
+
+		pixels := make([]byte, w*h*4)
+		bIndex := 0
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				r, g, b, a := img.At(x, y).RGBA()
+				pixels[bIndex] = byte(r / 256)
+				bIndex++
+				pixels[bIndex] = byte(g / 256)
+				bIndex++
+				pixels[bIndex] = byte(b / 256)
+				bIndex++
+				pixels[bIndex] = byte(a / 256)
+				bIndex++
 			}
 		}
+		tex := pixelsToTexture(renderer, pixels, w, h)
+		err = tex.SetBlendMode(sdl.BLENDMODE_BLEND)
+		if err != nil {
+			panic(err)
+		}
+		spriteTextures[i] = tex
 	}
+
+	sprites := make([]*sprite, numSprites)
+	for i := range sprites {
+		tex := spriteTextures[i%len(files)]
+		pos := vec3.Vector3{rand.Float32() * float32(winWidth), rand.Float32() * float32(winHeight), rand.Float32() * float32(winDepth)}
+		dir := vec3.Vector3{rand.Float32() * 0.1, rand.Float32() * 0.1, rand.Float32() * 0.05}
+		_, _, w, h, err := tex.Query()
+		if err != nil {
+			panic(err)
+		}
+		sprites[i] = &sprite{tex, pos, dir, int(w), int(h)}
+	}
+	return sprites
 }
 
-// update handles any change of the a ball
-func (ball *ball) update(elapsedTime float32) {
-	ball.x += ball.xv * elapsedTime
-	ball.y += ball.yv * elapsedTime
-
-	// Collision detection: Bounce
-	if ball.y-ball.radius < 0 || ball.y+ball.radius > float32(winHeight) {
-		ball.yv = -ball.yv
-
-		// Corrections of post-collision position: Minimum translation vector
-		if ball.y-ball.radius < 0 {
-			ball.y = ball.radius
-		}
-		if ball.y+ball.radius > float32(winHeight) {
-			ball.y = float32(winHeight) - ball.radius
-		}
-	}
-	if ball.x-ball.radius < 0 || ball.x+ball.radius > float32(winWidth) {
-		ball.xv = -ball.xv
-
-		// Corrections of post-collision position: Minimum translation vector
-		if ball.x-ball.radius < 0 {
-			ball.x = ball.radius
-		}
-		if ball.x+ball.radius > float32(winWidth) {
-			ball.x = float32(winWidth) - ball.radius
-		}
-	}
-
-}
-
-// setPixel set the color for a pixel
-func setPixel(x, y int, c color, pixels []byte) {
+// setPixel set the rgba for a pixel
+func setPixel(x, y int, c rgba, pixels []byte) {
 	index := (y*winWidth + x) * 4
 	if index < len(pixels)-4 && index >= 0 {
 		pixels[index] = c.r
@@ -77,19 +146,12 @@ func setPixel(x, y int, c color, pixels []byte) {
 	}
 }
 
-// clear cleans the pixelbuffer
-func clear(pixels []byte) {
-	for i := range pixels {
-		pixels[i] = 0
-	}
-}
-
 func lerp(b1 byte, b2 byte, pct float32) byte {
 	return byte(float32(b1) + pct*(float32(b2)-float32(b1)))
 }
 
-func colorLerp(c1, c2 color, pct float32) color {
-	return color{lerp(c1.r, c2.r, pct), lerp(c1.g, c2.g, pct), lerp(c1.b, c2.b, pct)}
+func colorLerp(c1, c2 rgba, pct float32) rgba {
+	return rgba{lerp(c1.r, c2.r, pct), lerp(c1.g, c2.g, pct), lerp(c1.b, c2.b, pct)}
 }
 
 func clamp(min, max, v int) int {
@@ -101,8 +163,8 @@ func clamp(min, max, v int) int {
 	return v
 }
 
-func getGradient(c1, c2 color) []color {
-	result := make([]color, 256)
+func getGradient(c1, c2 rgba) []rgba {
+	result := make([]rgba, 256)
 	for i := range result {
 		pct := float32(i) / float32(255)
 		result[i] = colorLerp(c1, c2, pct)
@@ -110,7 +172,7 @@ func getGradient(c1, c2 color) []color {
 	return result
 }
 
-func rescaleAndDraw(noise []float32, min, max float32, gradient []color, w, h int) []byte {
+func rescaleAndDraw(noise []float32, min, max float32, gradient []rgba, w, h int) []byte {
 	result := make([]byte, w*h*4)
 	scale := 255.0 / (max - min)
 	offset := min * scale
@@ -125,7 +187,27 @@ func rescaleAndDraw(noise []float32, min, max float32, gradient []color, w, h in
 	return result
 }
 
+type mouseState struct {
+	leftButton  bool
+	rightButton bool
+	x, y        int
+}
+
+func getMouseState() mouseState {
+	mouseX, mouseY, mouseButtonState := sdl.GetMouseState()
+	leftButton := mouseButtonState & sdl.ButtonLMask()
+	rightButton := mouseButtonState & sdl.ButtonRMask()
+	var result mouseState
+	result.x = int(mouseX)
+	result.y = int(mouseY)
+	result.leftButton = !(leftButton == 0)
+	result.rightButton = !(rightButton == 0)
+	return result
+}
+
 func main() {
+	// Some SDL logs
+	sdl.LogSetAllPriority(sdl.LOG_PRIORITY_VERBOSE)
 
 	err := sdl.Init(sdl.INIT_EVERYTHING)
 	if err != nil {
@@ -149,6 +231,9 @@ func main() {
 	}
 	defer renderer.Destroy()
 
+	// Enable nice edges
+	sdl.SetHint(sdl.HINT_RENDER_SCALE_QUALITY, "1")
+
 	texture, err := renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888,
 		sdl.TEXTUREACCESS_STREAMING, int32(winWidth), int32(winHeight))
 	if err != nil {
@@ -157,14 +242,17 @@ func main() {
 	}
 	defer texture.Destroy()
 
-	pixels := make([]byte, winWidth*winHeight*4)
-
-	ball := ball{pos: pos{300, 300}, radius: 30, xv: 300, yv: 300, color: color{255, 255, 0}}
+	sprites := loadSprites(renderer, 10)
 
 	// Create background
-	noise, min, max := noise.MakeNoise(noise.TURBULENCE, .02, 0.5, 2, 3, winWidth, winHeight)
-	gradient := getGradient(color{255, 0, 50}, color{255, 240, 0})
+	noise, min, max := noise.MakeNoise(noise.FBM, .01, 0.5, 3, 3, winWidth, winHeight)
+	gradient := getGradient(rgba{50, 150, 250}, rgba{255, 255, 255})
 	noisePixels := rescaleAndDraw(noise, min, max, gradient, winWidth, winHeight)
+	cloudTexture := pixelsToTexture(renderer, noisePixels, winWidth, winHeight)
+
+	// Handle mouse input
+	currentMouseState := getMouseState()
+	prevMouseState := currentMouseState
 
 	// Gameloop
 	var frameStart time.Time
@@ -178,26 +266,36 @@ func main() {
 				return
 			}
 		}
+		currentMouseState = getMouseState()
+
+		if !currentMouseState.leftButton && prevMouseState.leftButton {
+			fmt.Println("Left Click!")
+		}
 
 		// Handle movements
-		ball.update(elapsedTime)
+		for _, sprite := range sprites {
+			sprite.update(elapsedTime)
+		}
+		sort.Stable(spriteArray(sprites))
 
 		// Draw
-		// clear(pixels)
-		for i := range noisePixels {
-			pixels[i] = noisePixels[i]
-		}
-		ball.draw(pixels)
+		renderer.Copy(cloudTexture, nil, nil)
 
-		texture.Update(nil, pixels, winWidth*4)
-		renderer.Copy(texture, nil, nil)
+		for _, sprite := range sprites {
+			sprite.draw(renderer)
+		}
+
 		renderer.Present()
 
 		// Make sure its about 200fps
-		elapsedTime = float32(time.Since(frameStart).Seconds())
-		if elapsedTime < .005 {
-			sdl.Delay(5 - uint32(elapsedTime/1000.0))
-			elapsedTime = float32(time.Since(frameStart).Seconds())
+		elapsedTime = float32(time.Since(frameStart).Seconds() * 1000)
+		//fmt.Println("ms per frame:", elapsedTime)
+		if elapsedTime < 5 {
+			sdl.Delay(5 - uint32(elapsedTime))
+			elapsedTime = float32(time.Since(frameStart).Seconds() * 1000)
 		}
+
+		// Update mouse record
+		prevMouseState = currentMouseState
 	}
 }
