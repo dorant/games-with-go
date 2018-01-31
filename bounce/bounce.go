@@ -26,15 +26,24 @@ type sprite struct {
 	w, h int
 }
 
+func (sprite *sprite) getScaledSize() (width, height float32) {
+	scale := (sprite.pos.Z/float32(winDepth) + 1) / 3
+	w := float32(sprite.w) * scale
+	h := float32(sprite.h) * scale
+	return w, h
+}
+
 // update handles any change of the a sprite
 func (sprite *sprite) update(elapsedTime float32) {
 	p := vec3.Add(sprite.pos, vec3.Mult(sprite.dir, elapsedTime))
 
-	if p.X < 0 || p.X > float32(winWidth) {
+	newW, newH := sprite.getScaledSize()
+
+	if (p.X-newW/2) < 0 || (p.X+newW/2) > float32(winWidth) {
 		sprite.dir.X = -sprite.dir.X
 	}
 
-	if p.Y < 0 || p.Y > float32(winHeight) {
+	if (p.Y-newH/2) < 0 || (p.Y+newH/2) > float32(winHeight) {
 		sprite.dir.Y = -sprite.dir.Y
 	}
 
@@ -43,15 +52,27 @@ func (sprite *sprite) update(elapsedTime float32) {
 	}
 
 	sprite.pos = vec3.Add(sprite.pos, vec3.Mult(sprite.dir, elapsedTime))
+
+	// Screen boundary corrections
+	if sprite.pos.X-newW/2 < 0 {
+		sprite.pos.X = newW / 2
+	}
+	if sprite.pos.X+newW/2 > float32(winWidth) {
+		sprite.pos.X = float32(winWidth) - newW/2
+	}
+	if sprite.pos.Y-newH/2 < 0 {
+		sprite.pos.Y = newH / 2
+	}
+	if sprite.pos.Y+newH/2 > float32(winHeight) {
+		sprite.pos.Y = float32(winHeight) - newH/2
+	}
 }
 
 func (sprite *sprite) draw(renderer *sdl.Renderer) {
-	scale := (sprite.pos.Z/float32(winDepth) + 1) / 3
-	newW := int32(float32(sprite.w) * scale)
-	newH := int32(float32(sprite.h) * scale)
-	x := int32(sprite.pos.X - float32(newW)/2)
-	y := int32(sprite.pos.Y - float32(newH)/2)
-	rect := &sdl.Rect{X: x, Y: y, W: newW, H: newH}
+	newW, newH := sprite.getScaledSize()
+	x := int32(sprite.pos.X - newW/2)
+	y := int32(sprite.pos.Y - newH/2)
+	rect := &sdl.Rect{X: x, Y: y, W: int32(newW), H: int32(newH)}
 	renderer.Copy(sprite.tex, nil, rect)
 }
 
